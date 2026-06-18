@@ -39,7 +39,7 @@ Press `Ctrl+O` and then `Enter` to save, and `Ctrl+X` to exit nano.
 > **Quick Installation Alternative:**
 > Instead of manually copy-pasting, you can download the script directly to your device via SSH using this command:
 > ```bash
-> wget -O /storage/.config/autostart/010-zram-swap https://raw.githubusercontent.com/<YOUR-USERNAME>/zram-rocknix/main/010-zram-swap
+> wget -O /storage/.config/autostart/010-zram-swap https://raw.githubusercontent.com/farismiftahul/zram-rocknix/main/010-zram-swap
 > ```
 
 ### 3. Make it Executable
