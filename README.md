@@ -4,8 +4,20 @@ A lightweight autostart script to enable ZRAM swap on ROCKNIX-powered handheld d
 
 ## Installation
 
+### Connecting via SSH
+Before running the commands below, you need to connect to your ROCKNIX handheld device from another device (such as a PC) over your local network:
+1. **Find your Handheld's IP Address:** Look up your device's IP address (e.g., `192.168.x.x`) under the network settings of your handheld.
+2. **Open your SSH Client:** Use a client like **PuTTY** (on Windows) or the terminal (on macOS/Linux).
+3. **Login Credentials:**
+   * **Host Name/IP:** The IP address of your handheld (e.g., `192.168.x.x`)
+   * **Port:** `22`
+   * **User:** `root`
+   * **Password:** `rocknix` *(This is the default password. You can check or change it under **Settings** -> **Security** on your handheld).*
+
+---
+
 ### 1. Create the Directory and Script File
-Connect to your ROCKNIX device via SSH (or use a file manager) and run the following commands to create the autostart directory and a sequentially numbered script file:
+Once connected via SSH, run the following commands to create the autostart directory and a sequentially numbered script file:
 
 ```bash
 mkdir -p /storage/.config/autostart
