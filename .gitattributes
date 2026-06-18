@@ -1,0 +1,3 @@
+# Ensure shell scripts and specific script files always use LF (Linux) line endings
+010-zram-swap text eol=lf
+*.sh text eol=lf
