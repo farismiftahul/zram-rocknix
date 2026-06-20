@@ -458,14 +458,16 @@ fi
 # ---- Launch gptokeyb ----
 # We use the correct gptokeyb binary and run it WITHOUT double quotes.
 # This ensures that standard Portmaster helper arguments (like -1 or LD_PRELOAD) are evaluated correctly.
+export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
+
 GPTOKEYB_BIN=$(FindGptokeyb)
 GPTOKEYB_PID=""
 if [ -n "$GPTOKEYB_BIN" ]; then
     pgrep -f gptokeyb | xargs kill -9 2>/dev/null || true
     if [ "$IS_NESTED" = "true" ]; then
-        $GPTOKEYB_BIN "foot" -c "$SCRIPT_DIR/zram-manager.gptk" > /dev/null 2>&1 &
+        $GPTOKEYB_BIN "foot" -c "$SCRIPT_DIR/zram-manager.gptk" > "$SCRIPT_DIR/gptokeyb.log" 2>&1 &
     else
-        $GPTOKEYB_BIN "bash" -c "$SCRIPT_DIR/zram-manager.gptk" > /dev/null 2>&1 &
+        $GPTOKEYB_BIN "bash" -c "$SCRIPT_DIR/zram-manager.gptk" > "$SCRIPT_DIR/gptokeyb.log" 2>&1 &
     fi
     GPTOKEYB_PID=$!
     sleep 0.3
