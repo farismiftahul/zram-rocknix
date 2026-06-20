@@ -43,6 +43,8 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 cd "$SCRIPT_DIR"
 
 BACKTITLE="ZRam Manager for ROCKNIX Handhelds"
+MENU_HEIGHT="15"
+MENU_WIDTH="55"
 
 # Verify dialog exists
 if ! command -v dialog >/dev/null 2>&1; then
@@ -295,7 +297,8 @@ Use 'Enable ZRAM' in the main menu to activate swap compression."
     
     dialog --backtitle "$BACKTITLE" \
            --title " ZRAM & Memory Stats " \
-           --msgbox "$stat_text" 20 50 < "$CURR_TTY" 2> "$CURR_TTY"
+           --msgbox "$stat_text" 0 0 \
+           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
 }
 
 EnableZram() {
@@ -311,7 +314,8 @@ EnableZram() {
     if [ ! -b /dev/zram0 ]; then
         dialog --backtitle "$BACKTITLE" \
                --title " ERROR " \
-               --msgbox "Failed to create /dev/zram0.\nEnsure ZRAM is supported in the kernel." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+               --msgbox "Failed to create /dev/zram0.\nEnsure ZRAM is supported in the kernel." 0 0 \
+               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
         return 1
     fi
     
@@ -321,7 +325,8 @@ EnableZram() {
         else
             dialog --backtitle "$BACKTITLE" \
                    --title " Warning " \
-                   --msgbox "Algorithm '$algo' is not supported by your kernel.\nUsing default instead." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+                   --msgbox "Algorithm '$algo' is not supported by your kernel.\nUsing default instead." 0 0 \
+                   > "$CURR_TTY" 2>&1 < "$CURR_TTY"
         fi
     fi
     
@@ -342,12 +347,14 @@ EnableZram() {
         
         dialog --backtitle "$BACKTITLE" \
                --title " Success " \
-               --msgbox "ZRAM successfully enabled and configured:\n\n- Size: ${size} MB\n- Algorithm: ${actual_algo}\n- Swappiness: 100\n- Autostart: Enabled" 12 45 < "$CURR_TTY" 2> "$CURR_TTY"
+               --msgbox "ZRAM successfully enabled and configured:\n\n- Size: ${size} MB\n- Algorithm: ${actual_algo}\n- Swappiness: 100\n- Autostart: Enabled" 0 0 \
+               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
         return 0
     else
         dialog --backtitle "$BACKTITLE" \
                --title " ERROR " \
-               --msgbox "Failed to enable ZRAM swap.\nCheck kernel log (dmesg)." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+               --msgbox "Failed to enable ZRAM swap.\nCheck kernel log (dmesg)." 0 0 \
+               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
         return 1
     fi
 }
@@ -382,16 +389,15 @@ SelectZramSize() {
     done
     
     local count=$((${#choices[@]} / 2))
-    local menu_height=$((count + 7))
     
     local selection
     selection=$(dialog --backtitle "$BACKTITLE" \
                        --title " Select ZRAM Size " \
                        --default-item "$rec_size" \
                        --menu "Total System RAM: ${ram_mb} MB" \
-                       $menu_height 50 $count \
+                       $MENU_HEIGHT $MENU_WIDTH $count \
                        "${choices[@]}" \
-                       < "$CURR_TTY" 2> "$CURR_TTY")
+                       2>&1 > "$CURR_TTY" < "$CURR_TTY")
     
     echo "$selection"
 }
@@ -420,15 +426,14 @@ SelectZramAlgo() {
         fi
     done
     
-    local menu_height=$((count + 7))
     local selection
     selection=$(dialog --backtitle "$BACKTITLE" \
                        --title " Select ZRAM Algorithm " \
                        --default-item "lz4" \
                        --menu "Available algorithms in kernel:" \
-                       $menu_height 50 $count \
+                       $MENU_HEIGHT $MENU_WIDTH $count \
                        "${choices[@]}" \
-                       < "$CURR_TTY" 2> "$CURR_TTY")
+                       2>&1 > "$CURR_TTY" < "$CURR_TTY")
     
     echo "$selection"
 }
@@ -440,13 +445,15 @@ ToggleAutostart() {
         RemoveAutostartScript
         dialog --backtitle "$BACKTITLE" \
                --title " Autostart Disabled " \
-               --msgbox "Autostart has been disabled.\nZRAM will NOT start on boot." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+               --msgbox "Autostart has been disabled.\nZRAM will NOT start on boot." 0 0 \
+               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
     else
         SaveConfig "$CFG_SIZE" "$CFG_ALGO" "true"
         WriteAutostartScript
         dialog --backtitle "$BACKTITLE" \
                --title " Autostart Enabled " \
-               --msgbox "Autostart has been enabled.\nZRAM will start automatically on boot." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+               --msgbox "Autostart has been enabled.\nZRAM will start automatically on boot." 0 0 \
+               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
     fi
 }
 
@@ -478,14 +485,14 @@ MainMenu() {
                         --ok-label "Select" \
                         --cancel-label "Exit" \
                         --menu "System RAM: ${ram_mb} MB\nZRAM Status: $status_display\nAutostart  : $autostart_status" \
-                        16 55 6 \
+                        $MENU_HEIGHT $MENU_WIDTH 6 \
                         1 "► View statistics & details" \
                         2 "► Enable ZRAM (Quick - ${rec_size}MB, lz4)" \
                         3 "► Enable ZRAM (Custom settings)" \
                         4 "► Disable ZRAM" \
                         5 "► Toggle Autostart (On/Off)" \
                         6 "► Exit" \
-                        < "$CURR_TTY" 2> "$CURR_TTY")
+                        2>&1 > "$CURR_TTY" < "$CURR_TTY")
         
         local ret=$?
         if [ $ret -ne 0 ]; then
@@ -500,7 +507,8 @@ MainMenu() {
                 if [ "$status" = "ACTIVE" ]; then
                     dialog --backtitle "$BACKTITLE" \
                            --title " Information " \
-                           --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+                           --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 0 0 \
+                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
                 else
                     EnableZram "$rec_size" "lz4"
                 fi
@@ -509,7 +517,8 @@ MainMenu() {
                 if [ "$status" = "ACTIVE" ]; then
                     dialog --backtitle "$BACKTITLE" \
                            --title " Information " \
-                           --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+                           --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 0 0 \
+                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
                 else
                     local selected_size
                     selected_size=$(SelectZramSize)
@@ -526,16 +535,19 @@ MainMenu() {
                 if [ "$status" = "INACTIVE" ]; then
                     dialog --backtitle "$BACKTITLE" \
                            --title " Information " \
-                           --msgbox "ZRAM is not currently active." 7 40 < "$CURR_TTY" 2> "$CURR_TTY"
+                           --msgbox "ZRAM is not currently active." 0 0 \
+                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
                 else
                     dialog --backtitle "$BACKTITLE" \
                            --title " Confirm Disable " \
-                           --yesno "Are you sure you want to disable ZRAM swap?\n\nThis will free up the ZRAM space instantly." 8 45 < "$CURR_TTY" 2> "$CURR_TTY"
+                           --yesno "Are you sure you want to disable ZRAM swap?\n\nThis will free up the ZRAM space instantly." 0 0 \
+                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
                     if [ $? -eq 0 ]; then
                         DisableZram
                         dialog --backtitle "$BACKTITLE" \
                                --title " Disabled " \
-                               --msgbox "ZRAM swap has been disabled and stopped." 7 40 < "$CURR_TTY" 2> "$CURR_TTY"
+                               --msgbox "ZRAM swap has been disabled and stopped." 0 0 \
+                               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
                     fi
                 fi
                 ;;
