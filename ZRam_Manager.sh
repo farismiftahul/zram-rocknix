@@ -298,7 +298,7 @@ Use 'Enable ZRAM' in the main menu to activate swap compression."
     dialog --backtitle "$BACKTITLE" \
            --title " ZRAM & Memory Stats " \
            --msgbox "$stat_text" 0 0 \
-           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+           < "$CURR_TTY" 2> "$CURR_TTY"
 }
 
 EnableZram() {
@@ -315,7 +315,7 @@ EnableZram() {
         dialog --backtitle "$BACKTITLE" \
                --title " ERROR " \
                --msgbox "Failed to create /dev/zram0.\nEnsure ZRAM is supported in the kernel." 0 0 \
-               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+               < "$CURR_TTY" 2> "$CURR_TTY"
         return 1
     fi
     
@@ -326,7 +326,7 @@ EnableZram() {
             dialog --backtitle "$BACKTITLE" \
                    --title " Warning " \
                    --msgbox "Algorithm '$algo' is not supported by your kernel.\nUsing default instead." 0 0 \
-                   > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+                   < "$CURR_TTY" 2> "$CURR_TTY"
         fi
     fi
     
@@ -348,13 +348,13 @@ EnableZram() {
         dialog --backtitle "$BACKTITLE" \
                --title " Success " \
                --msgbox "ZRAM successfully enabled and configured:\n\n- Size: ${size} MB\n- Algorithm: ${actual_algo}\n- Swappiness: 100\n- Autostart: Enabled" 0 0 \
-               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+               < "$CURR_TTY" 2> "$CURR_TTY"
         return 0
     else
         dialog --backtitle "$BACKTITLE" \
                --title " ERROR " \
                --msgbox "Failed to enable ZRAM swap.\nCheck kernel log (dmesg)." 0 0 \
-               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+               < "$CURR_TTY" 2> "$CURR_TTY"
         return 1
     fi
 }
@@ -391,13 +391,13 @@ SelectZramSize() {
     local count=$((${#choices[@]} / 2))
     
     local selection
-    selection=$(dialog --backtitle "$BACKTITLE" \
+    selection=$(dialog --stdout --backtitle "$BACKTITLE" \
                        --title " Select ZRAM Size " \
                        --default-item "$rec_size" \
                        --menu "Total System RAM: ${ram_mb} MB" \
                        $MENU_HEIGHT $MENU_WIDTH $count \
                        "${choices[@]}" \
-                       2>&1 > "$CURR_TTY" < "$CURR_TTY")
+                       < "$CURR_TTY" 2> "$CURR_TTY")
     
     echo "$selection"
 }
@@ -427,13 +427,13 @@ SelectZramAlgo() {
     done
     
     local selection
-    selection=$(dialog --backtitle "$BACKTITLE" \
+    selection=$(dialog --stdout --backtitle "$BACKTITLE" \
                        --title " Select ZRAM Algorithm " \
                        --default-item "lz4" \
                        --menu "Available algorithms in kernel:" \
                        $MENU_HEIGHT $MENU_WIDTH $count \
                        "${choices[@]}" \
-                       2>&1 > "$CURR_TTY" < "$CURR_TTY")
+                       < "$CURR_TTY" 2> "$CURR_TTY")
     
     echo "$selection"
 }
@@ -446,14 +446,14 @@ ToggleAutostart() {
         dialog --backtitle "$BACKTITLE" \
                --title " Autostart Disabled " \
                --msgbox "Autostart has been disabled.\nZRAM will NOT start on boot." 0 0 \
-               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+               < "$CURR_TTY" 2> "$CURR_TTY"
     else
         SaveConfig "$CFG_SIZE" "$CFG_ALGO" "true"
         WriteAutostartScript
         dialog --backtitle "$BACKTITLE" \
                --title " Autostart Enabled " \
                --msgbox "Autostart has been enabled.\nZRAM will start automatically on boot." 0 0 \
-               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+               < "$CURR_TTY" 2> "$CURR_TTY"
     fi
 }
 
@@ -480,7 +480,7 @@ MainMenu() {
         fi
         
         local choice
-        choice=$(dialog --backtitle "$BACKTITLE" \
+        choice=$(dialog --stdout --backtitle "$BACKTITLE" \
                         --title " ZRAM Manager Main Menu " \
                         --ok-label "Select" \
                         --cancel-label "Exit" \
@@ -492,7 +492,7 @@ MainMenu() {
                         4 "► Disable ZRAM" \
                         5 "► Toggle Autostart (On/Off)" \
                         6 "► Exit" \
-                        2>&1 > "$CURR_TTY" < "$CURR_TTY")
+                        < "$CURR_TTY" 2> "$CURR_TTY")
         
         local ret=$?
         if [ $ret -ne 0 ]; then
@@ -508,7 +508,7 @@ MainMenu() {
                     dialog --backtitle "$BACKTITLE" \
                            --title " Information " \
                            --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 0 0 \
-                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+                           < "$CURR_TTY" 2> "$CURR_TTY"
                 else
                     EnableZram "$rec_size" "lz4"
                 fi
@@ -518,7 +518,7 @@ MainMenu() {
                     dialog --backtitle "$BACKTITLE" \
                            --title " Information " \
                            --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 0 0 \
-                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+                           < "$CURR_TTY" 2> "$CURR_TTY"
                 else
                     local selected_size
                     selected_size=$(SelectZramSize)
@@ -536,18 +536,18 @@ MainMenu() {
                     dialog --backtitle "$BACKTITLE" \
                            --title " Information " \
                            --msgbox "ZRAM is not currently active." 0 0 \
-                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+                           < "$CURR_TTY" 2> "$CURR_TTY"
                 else
                     dialog --backtitle "$BACKTITLE" \
                            --title " Confirm Disable " \
                            --yesno "Are you sure you want to disable ZRAM swap?\n\nThis will free up the ZRAM space instantly." 0 0 \
-                           > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+                           < "$CURR_TTY" 2> "$CURR_TTY"
                     if [ $? -eq 0 ]; then
                         DisableZram
                         dialog --backtitle "$BACKTITLE" \
                                --title " Disabled " \
                                --msgbox "ZRAM swap has been disabled and stopped." 0 0 \
-                               > "$CURR_TTY" 2>&1 < "$CURR_TTY"
+                               < "$CURR_TTY" 2> "$CURR_TTY"
                     fi
                 fi
                 ;;
@@ -566,7 +566,7 @@ GPTOKEYB_BIN=$(FindGptokeyb)
 GPTOKEYB_PID=""
 if [ -n "$GPTOKEYB_BIN" ]; then
     pgrep -f gptokeyb | xargs kill -9 2>/dev/null || true
-    "$GPTOKEYB_BIN" -1 "ZRam_Manager.sh" -c "./zram-manager.gptk" > /dev/null 2>&1 &
+    "$GPTOKEYB_BIN" -1 "ZRam_Manager.sh" -c "$SCRIPT_DIR/zram-manager.gptk" > /dev/null 2>&1 &
     GPTOKEYB_PID=$!
 fi
 
