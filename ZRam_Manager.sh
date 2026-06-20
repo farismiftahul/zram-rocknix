@@ -1,5 +1,6 @@
 #!/bin/bash
 # ZRam Manager for ROCKNIX Handheld Devices
+# Created by Miftahul Faris (farismiftahul)
 # Operated via Gamepad TUI (dialog + gptokeyb)
 # Follows standard Portmaster launch script conventions
 
