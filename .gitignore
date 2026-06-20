@@ -7,3 +7,7 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# Diagnostic tools
+test_dialog.*
+gptokeyb_*.log

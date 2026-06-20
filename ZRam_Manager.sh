@@ -1,113 +1,151 @@
 #!/bin/bash
 # ZRam Manager for ROCKNIX Handheld Devices
 # Operated via Gamepad TUI (dialog + gptokeyb)
+# Follows standard Portmaster launch script conventions
 
-# Ensure script is run as root
-if [ "$(id -u)" -ne 0 ]; then
-    exec sudo -- "$0" "$@"
+# ---- Wayland/Sway Terminal Nesting ----
+# ROCKNIX runs under Wayland (Sway). Direct TTY console output is hidden/inactive.
+# We must launch our script inside the 'foot' terminal emulator to render dialog on Sway.
+if [ "$UI_SERVICE" = "sway.service essway.service" ] && [ "$1" != "--nested" ]; then
+    exec foot -F "$0" --nested "$@"
 fi
 
-# Function to detect the active console TTY dynamically
+if [ "$1" = "--nested" ]; then
+    shift
+    IS_NESTED="true"
+fi
+
+# ---- Portmaster Environment Setup ----
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+
+if [ -d "/opt/system/Tools/PortMaster/" ]; then
+  controlfolder="/opt/system/Tools/PortMaster"
+elif [ -d "/opt/tools/PortMaster/" ]; then
+  controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
+else
+  controlfolder="/storage/roms/ports/PortMaster"
+fi
+
+if [ -f "$controlfolder/control.txt" ]; then
+  source "$controlfolder/control.txt"
+  [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
+  get_controls
+fi
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+cd "$SCRIPT_DIR"
+
+# ---- TTY Detection (Only needed if NOT running nested inside foot terminal) ----
 GetActiveTTY() {
+    # Try the kernel's active VT first
     if [ -f /sys/class/tty/tty0/active ]; then
         local active
-        active=$(cat /sys/class/tty/tty0/active)
-        if [ -n "$active" ]; then
+        active=$(cat /sys/class/tty/tty0/active 2>/dev/null)
+        if [ -n "$active" ] && [ -c "/dev/$active" ] && [ -w "/dev/$active" ]; then
             echo "/dev/$active"
             return 0
         fi
     fi
-    if [ -c /dev/tty ]; then
+    # Fallback to /dev/tty
+    if [ -c /dev/tty ] && [ -w /dev/tty ]; then
         echo "/dev/tty"
         return 0
     fi
-    echo "/dev/tty1"
-    return 1
+    # Last resort
+    echo "/dev/tty0"
+    return 0
 }
 
-# Resolve active TTY
-CURR_TTY=$(GetActiveTTY)
+if [ "$IS_NESTED" = "true" ]; then
+    CURR_TTY=""
+else
+    CURR_TTY=$(GetActiveTTY)
+    chmod 666 "$CURR_TTY" 2>/dev/null || true
+    chmod 666 /dev/uinput 2>/dev/null || true
+fi
 
-# Redirect standard outputs and inputs for the initialization
-chmod 666 "$CURR_TTY" 2>/dev/null || true
-chmod 666 /dev/uinput 2>/dev/null || true
-printf "\e[?25l" > "$CURR_TTY" # Hide cursor
-printf "\033c" > "$CURR_TTY"   # Clear screen
-
-# Set up environment
 export TERM=linux
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 
-# Ensure we are in the script's directory
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-cd "$SCRIPT_DIR"
+# ---- Dialog dimensions for handheld screens ----
+height="15"
+width="55"
 
-BACKTITLE="ZRam Manager for ROCKNIX Handhelds"
-MENU_HEIGHT="15"
-MENU_WIDTH="55"
+BACKTITLE="ZRam Manager for ROCKNIX"
+GPTOKEYB_PID=""
 
-# Verify dialog exists
-if ! command -v dialog >/dev/null 2>&1; then
-    printf "\nERROR: 'dialog' utility is not installed.\n" > "$CURR_TTY"
-    exit 1
-fi
-
-# Helper to find gptokeyb on ROCKNIX
-FindGptokeyb() {
-    if [ -n "$GPTOKEYB" ] && [ -x "$GPTOKEYB" ]; then
-        echo "$GPTOKEYB"
-        return 0
-    fi
-    for p in "/usr/bin/gptokeyb" "/usr/local/bin/gptokeyb"; do
-        if [ -x "$p" ]; then
-            echo "$p"
-            return 0
-        fi
-    done
-    for p in "/storage/roms/ports/PortMaster/gptokeyb" \
-             "/storage/roms/ports/PortMaster/gptokeyb.aarch64" \
-             "/storage/roms/ports/gptokeyb" \
-             "/storage/roms/ports/gptokeyb.aarch64"; do
-        if [ -x "$p" ]; then
-            echo "$p"
-            return 0
-        fi
-    done
-    local searched
-    searched=$(find /storage/roms/ports/ -name "gptokeyb" -type f -executable -print -quit 2>/dev/null)
-    if [ -n "$searched" ]; then
-        echo "$searched"
-        return 0
-    fi
-    searched=$(find /storage/roms/ports/ -name "gptokeyb.aarch64" -type f -executable -print -quit 2>/dev/null)
-    if [ -n "$searched" ]; then
-        echo "$searched"
-        return 0
-    fi
-    echo ""
-    return 1
-}
-
-# Clean exit handler
+# ---- Clean Exit ----
 ExitMenu() {
-    printf "\033c" > "$CURR_TTY"
-    printf "\e[?25h" > "$CURR_TTY" # Show cursor
-    if [ -n "$GPTOKEYB_PID" ]; then
-        kill -9 "$GPTOKEYB_PID" 2>/dev/null || true
+    # Disable traps immediately to prevent recursive calls
+    trap - EXIT INT TERM
+    
+    if [ -n "$CURR_TTY" ]; then
+        printf "\033c" > "$CURR_TTY" 2>/dev/null
+        printf "\e[?25h" > "$CURR_TTY" 2>/dev/null
     fi
-    pgrep -f gptokeyb | xargs kill -9 2>/dev/null || true
-    exit 0
+    
+    # Kill only our gptokeyb instance
+    if [ -n "$GPTOKEYB_PID" ]; then
+        kill -9 "$GPTOKEYB_PID" 2>/dev/null
+    fi
+    
+    if command -v pm_finish >/dev/null 2>&1; then
+        pm_finish
+    else
+        exit 0
+    fi
 }
 
 trap ExitMenu EXIT INT TERM
 
-# Load / Save Config helpers
+# ---- Verify dialog is available ----
+if ! command -v dialog >/dev/null 2>&1; then
+    if [ -n "$CURR_TTY" ]; then
+        echo "ERROR: dialog not found" > "$CURR_TTY"
+    else
+        echo "ERROR: dialog not found"
+    fi
+    sleep 2
+    exit 1
+fi
+
+# ---- Find gptokeyb ----
+FindGptokeyb() {
+    if [ -n "$GPTOKEYB2" ] && [ -x "$GPTOKEYB2" ]; then
+        echo "$GPTOKEYB2"
+        return 0
+    fi
+    if [ -n "$GPTOKEYB" ] && [ -x "$GPTOKEYB" ]; then
+        echo "$GPTOKEYB"
+        return 0
+    fi
+    if command -v gptokeyb >/dev/null 2>&1; then
+        command -v gptokeyb
+        return 0
+    fi
+    # Check common system paths
+    local paths="/usr/bin/gptokeyb /usr/local/bin/gptokeyb"
+    paths="$paths $controlfolder/gptokeyb $controlfolder/gptokeyb.aarch64"
+    for p in $paths; do
+        if [ -x "$p" ]; then
+            echo "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---- Config Helpers ----
 LoadConfig() {
-    TOTAL_RAM=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    CFG_SIZE=$((TOTAL_RAM / 1024 / 2)) # Default size (50% RAM)
+    local total_ram_kb
+    total_ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    CFG_SIZE=$((total_ram_kb / 1024 / 2))
+    [ "$CFG_SIZE" -lt 256 ] && CFG_SIZE=256
+    [ "$CFG_SIZE" -gt 2048 ] && CFG_SIZE=2048
     CFG_ALGO="lz4"
     CFG_AUTOSTART="true"
-    
     if [ -f "/storage/.config/zram.conf" ]; then
         source "/storage/.config/zram.conf"
         [ -n "$ZRAM_SIZE_MB" ] && CFG_SIZE="$ZRAM_SIZE_MB"
@@ -117,66 +155,43 @@ LoadConfig() {
 }
 
 SaveConfig() {
-    local size=$1
-    local algo=$2
-    local autostart=$3
-    
     mkdir -p /storage/.config
     cat > "/storage/.config/zram.conf" << EOF
 # ZRam Configuration for ROCKNIX
 # Generated by ZRam Manager
-ZRAM_SIZE_MB=${size}
-ZRAM_ALGO=${algo}
-ZRAM_AUTOSTART=${autostart}
+ZRAM_SIZE_MB=$1
+ZRAM_ALGO=$2
+ZRAM_AUTOSTART=$3
 EOF
     chmod 644 "/storage/.config/zram.conf"
 }
 
 WriteAutostartScript() {
     mkdir -p /storage/.config/autostart
-    cat > "/storage/.config/autostart/010-zram-swap" << 'EOF'
+    cat > "/storage/.config/autostart/010-zram-swap" << 'AUTOSTART_EOF'
 #!/bin/bash
-
-# Give the core subsystems a moment to stabilize
 sleep 5
-
-# Enable ZRAM
 modprobe zram num_devices=1 2>/dev/null
-
-# Wait up to 5 seconds for the block device to become available
-for i in {1..10}; do
+for i in $(seq 1 10); do
     [ -b /dev/zram0 ] && break
     sleep 0.5
 done
-
 if [ -b /dev/zram0 ]; then
     TOTAL_RAM=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     ZRAM_SIZE=$((TOTAL_RAM * 1024 / 2))
     ZRAM_ALGO="lz4"
-
-    # Load custom config if exists
     if [ -f "/storage/.config/zram.conf" ]; then
         source "/storage/.config/zram.conf"
-        if [ "$ZRAM_AUTOSTART" = "false" ]; then
-            exit 0
-        fi
-        if [ -n "$ZRAM_SIZE_MB" ]; then
-            ZRAM_SIZE=$((ZRAM_SIZE_MB * 1024 * 1024))
-        fi
+        [ "$ZRAM_AUTOSTART" = "false" ] && exit 0
+        [ -n "$ZRAM_SIZE_MB" ] && ZRAM_SIZE=$((ZRAM_SIZE_MB * 1024 * 1024))
     fi
-
-    # Set compression algorithm
-    if [ -f /sys/block/zram0/comp_algorithm ]; then
-        echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null
-    fi
-
-    # Initialize and enable ZRAM swap
+    [ -f /sys/block/zram0/comp_algorithm ] && echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null
     echo "$ZRAM_SIZE" > /sys/block/zram0/disksize
     mkswap /dev/zram0 >/dev/null 2>&1
     swapon -p 100 /dev/zram0
-    sysctl -w vm.swappiness=100
+    sysctl -w vm.swappiness=100 >/dev/null 2>&1
 fi
-EOF
+AUTOSTART_EOF
     chmod +x "/storage/.config/autostart/010-zram-swap"
 }
 
@@ -184,391 +199,277 @@ RemoveAutostartScript() {
     rm -f "/storage/.config/autostart/010-zram-swap"
 }
 
+# ---- ZRAM Status ----
 CheckZramStatus() {
-    if [ -b /dev/zram0 ]; then
-        if swapon -s | grep -q zram0; then
-            local size_bytes
-            size_bytes=$(cat /sys/block/zram0/disksize 2>/dev/null)
-            local size_mb=$((size_bytes / 1024 / 1024))
-            local algo
-            algo=$(cat /sys/block/zram0/comp_algorithm 2>/dev/null | grep -o '\[[^]]*\]' | tr -d '[]')
-            [ -z "$algo" ] && algo="lz4"
-            echo "ACTIVE|${size_mb}|${algo}"
-            return 0
-        fi
+    if [ -b /dev/zram0 ] && swapon -s 2>/dev/null | grep -q zram0; then
+        local size_bytes algo
+        size_bytes=$(cat /sys/block/zram0/disksize 2>/dev/null || echo 0)
+        algo=$(cat /sys/block/zram0/comp_algorithm 2>/dev/null | grep -o '\[[^]]*\]' | tr -d '[]')
+        [ -z "$algo" ] && algo="unknown"
+        echo "ACTIVE|$((size_bytes / 1024 / 1024))|${algo}"
+        return 0
     fi
     echo "INACTIVE|0|none"
     return 1
 }
 
-ShowZramInfo() {
-    # RAM stats
-    local mem_total
-    mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    local mem_free
-    mem_free=$(awk '/MemFree/ {print $2}' /proc/meminfo)
-    local mem_avail
-    mem_avail=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
-    
-    local ram_total_mb=$((mem_total / 1024))
-    local ram_free_mb=$((mem_free / 1024))
-    local ram_avail_mb=$((mem_avail / 1024))
-    local ram_used_mb=$((ram_total_mb - ram_avail_mb))
-    
-    # Swap stats
-    local swap_total
-    swap_total=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
-    local swap_free
-    swap_free=$(awk '/SwapFree/ {print $2}' /proc/meminfo)
-    local swap_total_mb=$((swap_total / 1024))
-    local swap_free_mb=$((swap_free / 1024))
-    local swap_used_mb=$((swap_total_mb - swap_free_mb))
-    
-    # ZRAM details
-    local zram_status
-    zram_status=$(CheckZramStatus)
-    IFS='|' read -r status size algo <<< "$zram_status"
-    
-    local stat_text=""
-    if [ "$status" = "ACTIVE" ]; then
-        local orig_mb=0
-        local compr_mb=0
-        local allocated_mb=0
-        local ratio="N/A"
-        
-        if [ -f /sys/block/zram0/mm_stat ]; then
-            read orig_bytes compr_bytes total_bytes limit max same pages_compacted huge <<< $(cat /sys/block/zram0/mm_stat)
-            orig_mb=$((orig_bytes / 1024 / 1024))
-            compr_mb=$((compr_bytes / 1024 / 1024))
-            allocated_mb=$((total_bytes / 1024 / 1024))
-            if [ "$compr_bytes" -gt 0 ] 2>/dev/null; then
-                ratio=$(awk "BEGIN {printf \"%.2f:1\", $orig_bytes/$compr_bytes}")
-            fi
-        fi
-        
-        local autostart_status="Disabled"
-        if [ -f "/storage/.config/autostart/010-zram-swap" ] && [ -x "/storage/.config/autostart/010-zram-swap" ]; then
-            autostart_status="Enabled"
-        fi
-        
-        stat_text="=== ZRAM Swap Active ===
-Status      : ACTIVE
-Disk Size   : ${size} MB
-Algorithm   : ${algo}
-Autostart   : ${autostart_status}
-
-=== Memory Stats ===
-Total RAM   : ${ram_total_mb} MB
-Used RAM    : ${ram_used_mb} MB
-Available   : ${ram_avail_mb} MB
-
-=== Swap Stats ===
-Total Swap  : ${swap_total_mb} MB
-Used Swap   : ${swap_used_mb} MB
-Free Swap   : ${swap_free_mb} MB
-
-=== ZRAM Metrics ===
-Uncompressed: ${orig_mb} MB
-Compressed  : ${compr_mb} MB
-Memory Alloc: ${allocated_mb} MB
-Compress Ratio: ${ratio}"
+# ---- Dialog Wrappers ----
+# For dialogs that need to CAPTURE a user selection (menu)
+run_menu() {
+    if [ -n "$CURR_TTY" ]; then
+        dialog --stdout "$@" 2>"$CURR_TTY" < "$CURR_TTY"
     else
-        local autostart_status="Disabled"
-        if [ -f "/storage/.config/autostart/010-zram-swap" ] && [ -x "/storage/.config/autostart/010-zram-swap" ]; then
-            autostart_status="Enabled (but not running)"
-        fi
-        
-        stat_text="=== ZRAM Swap Inactive ===
-Status      : INACTIVE
-Autostart   : ${autostart_status}
-
-=== Memory Stats ===
-Total RAM   : ${ram_total_mb} MB
-Used RAM    : ${ram_used_mb} MB
-Available   : ${ram_avail_mb} MB
-
-=== Swap Stats ===
-Total Swap  : ${swap_total_mb} MB
-Used Swap   : ${swap_used_mb} MB
-Free Swap   : ${swap_free_mb} MB
-
-Use 'Enable ZRAM' in the main menu to activate swap compression."
+        dialog --stdout "$@"
     fi
-    
-    dialog --backtitle "$BACKTITLE" \
-           --title " ZRAM & Memory Stats " \
-           --msgbox "$stat_text" 0 0 \
-           < "$CURR_TTY" 2> "$CURR_TTY"
 }
 
+# For dialogs that just DISPLAY info (msgbox, yesno)
+run_dialog() {
+    if [ -n "$CURR_TTY" ]; then
+        dialog "$@" 2>"$CURR_TTY" < "$CURR_TTY"
+    else
+        dialog "$@"
+    fi
+}
+
+# ---- Show Stats ----
+ShowZramInfo() {
+    local mem_total mem_avail swap_total swap_free
+    mem_total=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024))
+    mem_avail=$(($(awk '/MemAvailable/ {print $2}' /proc/meminfo) / 1024))
+    swap_total=$(($(awk '/SwapTotal/ {print $2}' /proc/meminfo) / 1024))
+    swap_free=$(($(awk '/SwapFree/ {print $2}' /proc/meminfo) / 1024))
+    local mem_used=$((mem_total - mem_avail))
+    local swap_used=$((swap_total - swap_free))
+
+    local zram_status
+    zram_status=$(CheckZramStatus)
+    IFS='|' read -r status zsize zalgo <<< "$zram_status"
+
+    local text=""
+    if [ "$status" = "ACTIVE" ]; then
+        local ratio="N/A"
+        if [ -f /sys/block/zram0/mm_stat ]; then
+            local orig comp
+            orig=$(awk '{print $1}' /sys/block/zram0/mm_stat 2>/dev/null)
+            comp=$(awk '{print $2}' /sys/block/zram0/mm_stat 2>/dev/null)
+            [ "$comp" -gt 0 ] 2>/dev/null && ratio=$(awk "BEGIN {printf \"%.1f:1\", $orig/$comp}")
+        fi
+        local auto_st="Off"
+        [ -f "/storage/.config/autostart/010-zram-swap" ] && [ -x "/storage/.config/autostart/010-zram-swap" ] && auto_st="On"
+        text="ZRAM: ACTIVE  ${zsize}MB  ${zalgo}
+Autostart: ${auto_st}  Ratio: ${ratio}
+
+RAM: ${mem_used}/${mem_total} MB used
+Swap: ${swap_used}/${swap_total} MB used"
+    else
+        local auto_st="Off"
+        [ -f "/storage/.config/autostart/010-zram-swap" ] && [ -x "/storage/.config/autostart/010-zram-swap" ] && auto_st="On"
+        text="ZRAM: INACTIVE
+Autostart: ${auto_st}
+
+RAM: ${mem_used}/${mem_total} MB used
+Swap: ${swap_used}/${swap_total} MB used"
+    fi
+    run_dialog --backtitle "$BACKTITLE" --title " Stats " --msgbox "$text" $height $width
+}
+
+# ---- Enable ZRAM ----
 EnableZram() {
-    local size=$1
-    local algo=$2
-    
-    DisableZram >/dev/null 2>&1
-    sleep 0.5
-    
+    local size_mb=$1 algo=$2
+
+    # Tear down any existing zram first
+    swapoff /dev/zram0 2>/dev/null
+    [ -b /dev/zram0 ] && echo 1 > /sys/block/zram0/reset 2>/dev/null
+    rmmod zram 2>/dev/null
+    sleep 0.3
+
     modprobe zram num_devices=1 2>/dev/null
-    sleep 0.5
-    
+    sleep 0.3
+
     if [ ! -b /dev/zram0 ]; then
-        dialog --backtitle "$BACKTITLE" \
-               --title " ERROR " \
-               --msgbox "Failed to create /dev/zram0.\nEnsure ZRAM is supported in the kernel." 0 0 \
-               < "$CURR_TTY" 2> "$CURR_TTY"
+        run_dialog --backtitle "$BACKTITLE" --title " Error " --msgbox "Cannot create /dev/zram0.\nZRAM kernel module may be missing." $height $width
         return 1
     fi
-    
+
+    # Set algorithm
     if [ -f /sys/block/zram0/comp_algorithm ]; then
-        if grep -q "$algo" /sys/block/zram0/comp_algorithm; then
-            echo "$algo" > /sys/block/zram0/comp_algorithm
-        else
-            dialog --backtitle "$BACKTITLE" \
-                   --title " Warning " \
-                   --msgbox "Algorithm '$algo' is not supported by your kernel.\nUsing default instead." 0 0 \
-                   < "$CURR_TTY" 2> "$CURR_TTY"
+        if grep -q "$algo" /sys/block/zram0/comp_algorithm 2>/dev/null; then
+            echo "$algo" > /sys/block/zram0/comp_algorithm 2>/dev/null
         fi
     fi
-    
-    local size_bytes=$((size * 1024 * 1024))
-    echo $size_bytes > /sys/block/zram0/disksize
-    
+
+    echo $((size_mb * 1024 * 1024)) > /sys/block/zram0/disksize
     mkswap /dev/zram0 >/dev/null 2>&1
     swapon -p 100 /dev/zram0 2>/dev/null
-    
+
     if [ $? -eq 0 ]; then
         sysctl -w vm.swappiness=100 >/dev/null 2>&1
         local actual_algo
         actual_algo=$(cat /sys/block/zram0/comp_algorithm 2>/dev/null | grep -o '\[[^]]*\]' | tr -d '[]')
         [ -z "$actual_algo" ] && actual_algo="$algo"
-        
-        SaveConfig "$size" "$actual_algo" "true"
+        SaveConfig "$size_mb" "$actual_algo" "true"
         WriteAutostartScript
-        
-        dialog --backtitle "$BACKTITLE" \
-               --title " Success " \
-               --msgbox "ZRAM successfully enabled and configured:\n\n- Size: ${size} MB\n- Algorithm: ${actual_algo}\n- Swappiness: 100\n- Autostart: Enabled" 0 0 \
-               < "$CURR_TTY" 2> "$CURR_TTY"
-        return 0
+        run_dialog --backtitle "$BACKTITLE" --title " OK " --msgbox "ZRAM enabled: ${size_mb}MB ${actual_algo}\nAutostart: On" $height $width
     else
-        dialog --backtitle "$BACKTITLE" \
-               --title " ERROR " \
-               --msgbox "Failed to enable ZRAM swap.\nCheck kernel log (dmesg)." 0 0 \
-               < "$CURR_TTY" 2> "$CURR_TTY"
+        run_dialog --backtitle "$BACKTITLE" --title " Error " --msgbox "Failed to enable ZRAM swap." $height $width
         return 1
     fi
 }
 
+# ---- Disable ZRAM ----
 DisableZram() {
-    if [ -b /dev/zram0 ]; then
-        swapoff /dev/zram0 2>/dev/null
-        echo 1 > /sys/block/zram0/reset 2>/dev/null
-    fi
+    swapoff /dev/zram0 2>/dev/null
+    [ -b /dev/zram0 ] && echo 1 > /sys/block/zram0/reset 2>/dev/null
     rmmod zram 2>/dev/null
-    
     LoadConfig
     SaveConfig "$CFG_SIZE" "$CFG_ALGO" "false"
     RemoveAutostartScript
 }
 
+# ---- Size Selection ----
 SelectZramSize() {
-    local mem_total
-    mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    local ram_mb=$((mem_total / 1024))
-    local rec_size=$((ram_mb / 2))
-    [ $rec_size -lt 256 ] && rec_size=256
-    [ $rec_size -gt 2048 ] && rec_size=2048
-    
-    local choices=()
-    choices+=("$rec_size" "★ ${rec_size} MB (Recommended - 50% RAM)")
-    
+    local total_ram_kb total_ram_mb rec
+    total_ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    total_ram_mb=$((total_ram_kb / 1024))
+    rec=$((total_ram_mb / 2))
+    [ "$rec" -lt 256 ] && rec=256
+    [ "$rec" -gt 2048 ] && rec=2048
+
+    local choices=("$rec" "Recommended (${rec}MB)")
     for s in 256 512 1024 1536 2048; do
-        if [ "$s" -ne "$rec_size" ] && [ "$s" -le "$ram_mb" ]; then
-            choices+=("$s" "  ${s} MB")
-        fi
+        [ "$s" -ne "$rec" ] && [ "$s" -le "$total_ram_mb" ] && choices+=("$s" "${s} MB")
     done
-    
-    local count=$((${#choices[@]} / 2))
-    
-    local selection
-    selection=$(dialog --stdout --backtitle "$BACKTITLE" \
-                       --title " Select ZRAM Size " \
-                       --default-item "$rec_size" \
-                       --menu "Total System RAM: ${ram_mb} MB" \
-                       $MENU_HEIGHT $MENU_WIDTH $count \
-                       "${choices[@]}" \
-                       < "$CURR_TTY" 2> "$CURR_TTY")
-    
-    echo "$selection"
+    local cnt=$((${#choices[@]} / 2))
+
+    run_menu --backtitle "$BACKTITLE" --title " ZRAM Size " --default-item "$rec" \
+        --menu "RAM: ${total_ram_mb} MB" $height $width $cnt "${choices[@]}"
 }
 
+# ---- Algo Selection ----
 SelectZramAlgo() {
-    if [ ! -b /dev/zram0 ]; then
-        modprobe zram num_devices=1 2>/dev/null
-        sleep 0.5
-    fi
-    
-    local raw_algos="lz4 lzo zstd"
-    if [ -f /sys/block/zram0/comp_algorithm ]; then
-        raw_algos=$(cat /sys/block/zram0/comp_algorithm | tr -d '[]')
-    fi
-    
-    local choices=()
-    local count=0
-    for a in $raw_algos; do
-        count=$((count + 1))
-        if [ "$a" = "lz4" ]; then
-            choices+=("$a" "★ lz4 (Recommended - Fastest)")
-        elif [ "$a" = "zstd" ]; then
-            choices+=("$a" "  zstd (High Compression)")
-        else
-            choices+=("$a" "  $a")
-        fi
+    [ ! -b /dev/zram0 ] && { modprobe zram num_devices=1 2>/dev/null; sleep 0.3; }
+
+    local raw="lz4 lzo zstd"
+    [ -f /sys/block/zram0/comp_algorithm ] && raw=$(cat /sys/block/zram0/comp_algorithm | tr -d '[]')
+
+    local choices=() cnt=0
+    for a in $raw; do
+        cnt=$((cnt + 1))
+        case "$a" in
+            lz4)  choices+=("$a" "lz4 - Fastest (recommended)") ;;
+            zstd) choices+=("$a" "zstd - High compression") ;;
+            *)    choices+=("$a" "$a") ;;
+        esac
     done
-    
-    local selection
-    selection=$(dialog --stdout --backtitle "$BACKTITLE" \
-                       --title " Select ZRAM Algorithm " \
-                       --default-item "lz4" \
-                       --menu "Available algorithms in kernel:" \
-                       $MENU_HEIGHT $MENU_WIDTH $count \
-                       "${choices[@]}" \
-                       < "$CURR_TTY" 2> "$CURR_TTY")
-    
-    echo "$selection"
+
+    run_menu --backtitle "$BACKTITLE" --title " Algorithm " --default-item "lz4" \
+        --menu "Select compression:" $height $width $cnt "${choices[@]}"
 }
 
+# ---- Toggle Autostart ----
 ToggleAutostart() {
     LoadConfig
     if [ "$CFG_AUTOSTART" = "true" ]; then
         SaveConfig "$CFG_SIZE" "$CFG_ALGO" "false"
         RemoveAutostartScript
-        dialog --backtitle "$BACKTITLE" \
-               --title " Autostart Disabled " \
-               --msgbox "Autostart has been disabled.\nZRAM will NOT start on boot." 0 0 \
-               < "$CURR_TTY" 2> "$CURR_TTY"
+        run_dialog --backtitle "$BACKTITLE" --title " Autostart " --msgbox "Autostart disabled." $height $width
     else
         SaveConfig "$CFG_SIZE" "$CFG_ALGO" "true"
         WriteAutostartScript
-        dialog --backtitle "$BACKTITLE" \
-               --title " Autostart Enabled " \
-               --msgbox "Autostart has been enabled.\nZRAM will start automatically on boot." 0 0 \
-               < "$CURR_TTY" 2> "$CURR_TTY"
+        run_dialog --backtitle "$BACKTITLE" --title " Autostart " --msgbox "Autostart enabled." $height $width
     fi
 }
 
+# ---- Main Menu Loop ----
 MainMenu() {
-    local mem_total
-    mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    local ram_mb=$((mem_total / 1024))
-    local rec_size=$((ram_mb / 2))
-    [ $rec_size -lt 256 ] && rec_size=256
-    
+    LoadConfig
+    local rec_size="$CFG_SIZE"
+
     while true; do
-        local status_info
-        status_info=$(CheckZramStatus)
-        IFS='|' read -r status size algo <<< "$status_info"
-        
-        local status_display="Inactive"
-        if [ "$status" = "ACTIVE" ]; then
-            status_display="Active (${size}MB, ${algo})"
-        fi
-        
-        local autostart_status="Disabled"
-        if [ -f "/storage/.config/autostart/010-zram-swap" ] && [ -x "/storage/.config/autostart/010-zram-swap" ]; then
-            autostart_status="Enabled"
-        fi
-        
+        local zinfo
+        zinfo=$(CheckZramStatus)
+        IFS='|' read -r st sz al <<< "$zinfo"
+
+        local stxt="Inactive"
+        [ "$st" = "ACTIVE" ] && stxt="Active ${sz}MB ${al}"
+        local auto="Off"
+        [ -f "/storage/.config/autostart/010-zram-swap" ] && [ -x "/storage/.config/autostart/010-zram-swap" ] && auto="On"
+
         local choice
-        choice=$(dialog --stdout --backtitle "$BACKTITLE" \
-                        --title " ZRAM Manager Main Menu " \
-                        --ok-label "Select" \
-                        --cancel-label "Exit" \
-                        --menu "System RAM: ${ram_mb} MB\nZRAM Status: $status_display\nAutostart  : $autostart_status" \
-                        $MENU_HEIGHT $MENU_WIDTH 6 \
-                        1 "► View statistics & details" \
-                        2 "► Enable ZRAM (Quick - ${rec_size}MB, lz4)" \
-                        3 "► Enable ZRAM (Custom settings)" \
-                        4 "► Disable ZRAM" \
-                        5 "► Toggle Autostart (On/Off)" \
-                        6 "► Exit" \
-                        < "$CURR_TTY" 2> "$CURR_TTY")
-        
-        local ret=$?
-        if [ $ret -ne 0 ]; then
-            ExitMenu
-        fi
-        
+        choice=$(run_menu --backtitle "$BACKTITLE" --title " ZRAM Manager " \
+            --ok-label "Select" --cancel-label "Exit" \
+            --menu "ZRAM: $stxt | Auto: $auto" $height $width 6 \
+            1 "View Stats" \
+            2 "Enable (Quick ${rec_size}MB lz4)" \
+            3 "Enable (Custom)" \
+            4 "Disable ZRAM" \
+            5 "Toggle Autostart" \
+            6 "Exit")
+
+        case "$?" in
+            1|255) ExitMenu ;; # Cancel or ESC
+        esac
+
         case "$choice" in
-            1)
-                ShowZramInfo
-                ;;
+            1) ShowZramInfo ;;
             2)
-                if [ "$status" = "ACTIVE" ]; then
-                    dialog --backtitle "$BACKTITLE" \
-                           --title " Information " \
-                           --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 0 0 \
-                           < "$CURR_TTY" 2> "$CURR_TTY"
+                if [ "$st" = "ACTIVE" ]; then
+                    run_dialog --backtitle "$BACKTITLE" --title " Info " --msgbox "Already active. Disable first." $height $width
                 else
                     EnableZram "$rec_size" "lz4"
                 fi
                 ;;
             3)
-                if [ "$status" = "ACTIVE" ]; then
-                    dialog --backtitle "$BACKTITLE" \
-                           --title " Information " \
-                           --msgbox "ZRAM is already active.\nPlease disable ZRAM first to reconfigure." 0 0 \
-                           < "$CURR_TTY" 2> "$CURR_TTY"
+                if [ "$st" = "ACTIVE" ]; then
+                    run_dialog --backtitle "$BACKTITLE" --title " Info " --msgbox "Already active. Disable first." $height $width
                 else
-                    local selected_size
-                    selected_size=$(SelectZramSize)
-                    if [ -n "$selected_size" ]; then
-                        local selected_algo
-                        selected_algo=$(SelectZramAlgo)
-                        if [ -n "$selected_algo" ]; then
-                            EnableZram "$selected_size" "$selected_algo"
-                        fi
+                    local sel_size sel_algo
+                    sel_size=$(SelectZramSize)
+                    if [ -n "$sel_size" ]; then
+                        sel_algo=$(SelectZramAlgo)
+                        [ -n "$sel_algo" ] && EnableZram "$sel_size" "$sel_algo"
                     fi
                 fi
                 ;;
             4)
-                if [ "$status" = "INACTIVE" ]; then
-                    dialog --backtitle "$BACKTITLE" \
-                           --title " Information " \
-                           --msgbox "ZRAM is not currently active." 0 0 \
-                           < "$CURR_TTY" 2> "$CURR_TTY"
+                if [ "$st" = "INACTIVE" ]; then
+                    run_dialog --backtitle "$BACKTITLE" --title " Info " --msgbox "ZRAM is not active." $height $width
                 else
-                    dialog --backtitle "$BACKTITLE" \
-                           --title " Confirm Disable " \
-                           --yesno "Are you sure you want to disable ZRAM swap?\n\nThis will free up the ZRAM space instantly." 0 0 \
-                           < "$CURR_TTY" 2> "$CURR_TTY"
+                    run_dialog --backtitle "$BACKTITLE" --title " Confirm " --yesno "Disable ZRAM swap?" $height $width
                     if [ $? -eq 0 ]; then
                         DisableZram
-                        dialog --backtitle "$BACKTITLE" \
-                               --title " Disabled " \
-                               --msgbox "ZRAM swap has been disabled and stopped." 0 0 \
-                               < "$CURR_TTY" 2> "$CURR_TTY"
+                        run_dialog --backtitle "$BACKTITLE" --title " Done " --msgbox "ZRAM disabled." $height $width
                     fi
                 fi
                 ;;
-            5)
-                ToggleAutostart
-                ;;
-            6)
-                ExitMenu
-                ;;
+            5) ToggleAutostart ;;
+            6|"") ExitMenu ;;
         esac
     done
 }
 
-# Find and launch gptokeyb
+# ---- Initialize Screen (Only if running on direct TTY) ----
+if [ -n "$CURR_TTY" ]; then
+    printf "\033c" > "$CURR_TTY" 2>/dev/null
+    printf "\e[?25l" > "$CURR_TTY" 2>/dev/null
+fi
+
+# ---- Launch gptokeyb ----
+# We use the correct gptokeyb binary and run it WITHOUT double quotes.
+# This ensures that standard Portmaster helper arguments (like -1 or LD_PRELOAD) are evaluated correctly.
 GPTOKEYB_BIN=$(FindGptokeyb)
 GPTOKEYB_PID=""
 if [ -n "$GPTOKEYB_BIN" ]; then
     pgrep -f gptokeyb | xargs kill -9 2>/dev/null || true
-    "$GPTOKEYB_BIN" -1 "ZRam_Manager.sh" -c "$SCRIPT_DIR/zram-manager.gptk" > /dev/null 2>&1 &
+    if [ "$IS_NESTED" = "true" ]; then
+        $GPTOKEYB_BIN "foot" -c "$SCRIPT_DIR/zram-manager.gptk" > /dev/null 2>&1 &
+    else
+        $GPTOKEYB_BIN "bash" -c "$SCRIPT_DIR/zram-manager.gptk" > /dev/null 2>&1 &
+    fi
     GPTOKEYB_PID=$!
+    sleep 0.3
 fi
 
-# Run main interface
+# ---- Run ----
 MainMenu
