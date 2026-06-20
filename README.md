@@ -1,8 +1,42 @@
-# Rocknix ZRAM Swap Script for Handheld Devices
+# Rocknix ZRAM Swap Script & Manager for Handheld Devices
 
-A lightweight autostart script to enable ZRAM swap on ROCKNIX-powered handheld devices. This helps improve memory management, reduce stuttering, and prevent out-of-memory (OOM) crashes in demanding games/emulators by allocating compressed RAM as swap space.
+A collection of tools to configure and manage ZRAM swap memory on ROCKNIX-powered handheld gaming devices. This helps improve memory management, reduce stuttering, and prevent out-of-memory (OOM) crashes in demanding games/emulators by allocating compressed RAM as swap space.
 
-## Installation
+You can set up ZRAM in two ways:
+1. **[Method 1: Gamepad TUI ZRAM Manager (Recommended)](#method-1-gamepad-tui-zram-manager-recommended)** - A full terminal user interface (TUI) that can be run from the EmulationStation Ports menu and navigated entirely using your device's joystick/d-pad.
+2. **[Method 2: Manual Autostart Script](#method-2-manual-autostart-script)** - A quick, lightweight bash script written directly to ROCKNIX's autostart directory.
+
+---
+
+## Method 1: Gamepad TUI ZRAM Manager (Recommended)
+
+The ZRAM Manager is a Portmaster-compatible utility that provides a terminal menu system. It allows you to:
+* **Check live statistics** (free/used RAM, active swap space, ZRAM compression ratio, memory allocated).
+* **Enable ZRAM** using either optimized quick settings (50% RAM, `lz4` compression) or custom configurations.
+* **Select compression algorithms** supported by your kernel (e.g., `lz4`, `zstd`, `lzo`).
+* **Toggle autostart** on or off dynamically.
+* **Operate it using the gamepad** (D-pad/Joystick for navigation, `A` to select, `B` to cancel).
+
+### Installation Instructions
+
+1. **Download the TUI Manager files** from this repository:
+   * [ZRam_Manager.sh](file:///d:/Projects/zram-rocknix/ZRam_Manager.sh)
+   * [zram-manager.gptk](file:///d:/Projects/zram-rocknix/zram-manager.gptk)
+2. **Transfer these files** to your handheld device's ports folder at `/storage/roms/ports/` (using SFTP, Samba network share, or an SSH terminal).
+3. **Make the script executable** via SSH:
+   ```bash
+   chmod +x /storage/roms/ports/ZRam_Manager.sh
+   ```
+4. **Launch the TUI**:
+   * Restart EmulationStation or refresh your game list.
+   * Go to the **Ports** menu on your handheld and launch **ZRam_Manager**.
+   * Use your D-pad/Left Joystick to navigate, `A` to enter/select, and `B` to exit.
+
+---
+
+## Method 2: Manual Autostart Script
+
+If you don't need a terminal user interface and want to manually enable ZRAM, follow the steps below.
 
 ### Connecting via SSH
 Before running the commands below, you need to connect to your ROCKNIX handheld device from another device (such as a PC) over your local network:
@@ -65,7 +99,7 @@ Now, when you restart your ROCKNIX device, it will scan the directory, pick up `
 
 ---
 
-## Disabling or Removing the Script
+## Disabling or Removing the Manual Script
 
 To disable the script in ROCKNIX, you have two clean options depending on whether you want to turn it off temporarily or remove it completely.
 
