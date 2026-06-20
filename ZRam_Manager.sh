@@ -3,18 +3,6 @@
 # Operated via Gamepad TUI (dialog + gptokeyb)
 # Follows standard Portmaster launch script conventions
 
-# ---- Wayland/Sway Terminal Nesting ----
-# ROCKNIX runs under Wayland (Sway). Direct TTY console output is hidden/inactive.
-# We must launch our script inside the 'foot' terminal emulator to render dialog on Sway.
-if [ "$UI_SERVICE" = "sway.service essway.service" ] && [ "$1" != "--nested" ]; then
-    exec foot -F "$0" --nested "$@"
-fi
-
-if [ "$1" = "--nested" ]; then
-    shift
-    IS_NESTED="true"
-fi
-
 # ---- Portmaster Environment Setup ----
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
@@ -32,6 +20,24 @@ if [ -f "$controlfolder/control.txt" ]; then
   source "$controlfolder/control.txt"
   [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
   get_controls
+fi
+
+# ---- Wayland/Sway Terminal Nesting ----
+# ROCKNIX runs under Wayland (Sway). Direct TTY console output is hidden/inactive.
+# We must launch our script inside the 'foot' terminal emulator to render dialog on Sway.
+if [ "$UI_SERVICE" = "sway.service essway.service" ] && [ "$1" != "--nested" ]; then
+    # Calculate appropriate font size based on display resolution (scaling DPI)
+    [ -z "$DISPLAY_WIDTH" ] && DISPLAY_WIDTH=640
+    FONT_SIZE=$(( DISPLAY_WIDTH / 40 ))
+    [ "$FONT_SIZE" -lt 14 ] && FONT_SIZE=14
+    [ "$FONT_SIZE" -gt 40 ] && FONT_SIZE=40
+    
+    exec foot -o font="monospace:size=${FONT_SIZE}" -F "$0" --nested "$@"
+fi
+
+if [ "$1" = "--nested" ]; then
+    shift
+    IS_NESTED="true"
 fi
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
