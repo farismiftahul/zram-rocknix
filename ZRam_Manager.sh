@@ -75,9 +75,9 @@ fi
 export TERM=linux
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 
-# ---- Dialog dimensions for handheld screens ----
-height="15"
-width="55"
+# ---- Dialog dimensions for handheld screens (0 = auto-scale to fill terminal) ----
+height="0"
+width="0"
 
 BACKTITLE="ZRam Manager for ROCKNIX"
 GPTOKEYB_PID=""
