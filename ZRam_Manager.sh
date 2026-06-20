@@ -91,7 +91,9 @@ ExitMenu() {
         kill -9 "$GPTOKEYB_PID" 2>/dev/null
     fi
     
-    if command -v pm_finish >/dev/null 2>&1; then
+    if [ "$IS_NESTED" = "true" ]; then
+        exit 0
+    elif command -v pm_finish >/dev/null 2>&1; then
         pm_finish
     else
         exit 0
@@ -216,11 +218,16 @@ CheckZramStatus() {
 # ---- Dialog Wrappers ----
 # For dialogs that need to CAPTURE a user selection (menu)
 run_menu() {
+    local val
     if [ -n "$CURR_TTY" ]; then
-        dialog --stdout "$@" 2>"$CURR_TTY" < "$CURR_TTY"
+        val=$(dialog --stdout "$@" 2>"$CURR_TTY" < "$CURR_TTY")
     else
-        dialog --stdout "$@"
+        val=$(dialog --stdout "$@")
     fi
+    local ret=$?
+    echo "$val"
+    sleep 0.2
+    return $ret
 }
 
 # For dialogs that just DISPLAY info (msgbox, yesno)
@@ -230,6 +237,9 @@ run_dialog() {
     else
         dialog "$@"
     fi
+    local ret=$?
+    sleep 0.2
+    return $ret
 }
 
 # ---- Show Stats ----
